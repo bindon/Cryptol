@@ -1,0 +1,126 @@
+// Cryptol LEA Implementation
+// Korea University
+// Wonbin Choi
+// Prof. Dr. Seungjoo (Gabriel) Kim
+module LEA where
+
+// Data Type
+type Byte = [8]
+type Int = [32]
+
+// ALGIROTHM
+//		Nb	Nk	Nr
+// LEA-128	16	16	24
+// LEA-192	16	24	28
+// LEA-256	16	32	32
+type Nb = 16
+type Nk = 16
+type Nr = 24
+type keySize = 128
+
+endian : Int -> Int
+endian(x) = join(reverse(split`{4} x))
+
+endian128 : [keySize] -> [keySize]
+endian128(key) = join(resultKey)
+	where
+		keys = split`{4} key
+		resultKey = [
+			endian(keys @ i)
+			| i <- [0 .. 3]:[_]Byte
+		]
+/*
+
+endian : {n} (fin n) => [n] -> [n]
+endian(x) = join(result)
+	where
+		keys = split`{n/8} x
+		result = [
+			join(reverse(split`{4} (keys @ x)))
+			| i <- [0 .. n/8]:[_]Byte
+		] 
+*/
+		
+delta : [8]Int
+delta = [0xc3efe9db, 0x44626b02, 0x79e27c8a, 0x78df30ec, 
+	 0x715ea49e, 0xc785da0a, 0xe04ef22a, 0xe5c40957]
+
+//round : {keyLen} (fin keyLen, keyLen == keySize) => ([keyLen], [192]) -> [keyLen]
+roundForEnc : ([keySize], [192]) -> [keySize]
+roundForEnc(Xi, RKi) = join [X0, X1, X2, X3]
+	where
+		Xis  = split`{4} Xi
+		RKis = split`{6} RKi
+		X0 = ((Xis @ 0 ^ RKis @ 0) + (Xis @ 1 ^ RKis @ 1)) <<< 9
+		X1 = ((Xis @ 1 ^ RKis @ 2) + (Xis @ 2 ^ RKis @ 3)) >>> 5
+		X2 = ((Xis @ 2 ^ RKis @ 4) + (Xis @ 3 ^ RKis @ 5)) >>> 3
+		X3 = Xis @ 0
+
+roundForDec : ([keySize], [192]) -> [keySize]
+roundForDec(Xi, RKi) = join [X0, X1, X2, X3]
+	where
+		Xis  = split`{4} Xi
+		RKis = split`{6} RKi
+		X0 = Xis @ 3
+		X1 = (((Xis @ 0) >>> 9) - (X0 ^ RKis @ 0)) ^ RKis @ 1
+		X2 = (((Xis @ 1) <<< 5) - (X1 ^ RKis @ 2)) ^ RKis @ 3
+		X3 = (((Xis @ 2) <<< 3) - (X2 ^ RKis @ 4)) ^ RKis @ 5
+
+calculateTemp : ([keySize], Int) -> [keySize]
+calculateTemp (key, i) = temp
+	where
+		T = split`{4} key
+		temp = join [
+			(T @ 0 + (delta @ (i % 4) <<< (i    ))) <<< 1, 
+			(T @ 1 + (delta @ (i % 4) <<< (i + 1))) <<< 3, 
+			(T @ 2 + (delta @ (i % 4) <<< (i + 2))) <<< 6, 
+			(T @ 3 + (delta @ (i % 4) <<< (i + 3))) <<< 11
+		]
+
+generateTemp : [keySize] -> [Nr][keySize]
+generateTemp key = temp
+	where
+		roundTemp = [key] # [
+			calculateTemp(T, i)
+			| T <- roundTemp
+			| i <- [0 .. Nr-1]
+		]
+		temp = drop`{1} roundTemp
+
+keySchedule128 : [keySize] -> [Nr][192]
+keySchedule128 key = roundKey
+	where
+		tempList = generateTemp(endian128(key))
+		roundKey = [
+			join [
+				(split`{4} (tempList @ i)) @ 0, 
+				(split`{4} (tempList @ i)) @ 1, 
+				(split`{4} (tempList @ i)) @ 2, 
+				(split`{4} (tempList @ i)) @ 1, 
+				(split`{4} (tempList @ i)) @ 3,
+				(split`{4} (tempList @ i)) @ 1
+			]
+			| i <- [0 .. Nr-1]:[_]Byte
+		]
+
+encrypt : ([128], [128]) -> [128]
+encrypt (plainText, key) = endian128(join(drop`{Nr} roundText))
+	where
+		roundKey = keySchedule128(key)
+		roundText = [endian128(plainText)] # [
+			roundForEnc(currentText, roundKey @ i)
+			| currentText <- roundText
+			| i <- [0 .. Nr-1]:[_]Byte
+		]
+
+decrypt : ([128], [128]) -> [128]
+decrypt (cipherText, key) = endian128(join(drop`{Nr} roundText))
+	where
+		roundKey = reverse(keySchedule128(key))
+		roundText = [endian128(cipherText)] # [
+			roundForDec(currentText, roundKey @ i)
+			| currentText <- roundText
+			| i <- [0 .. Nr-1]:[_]Byte
+		]
+
+property LEACorrectness (plainText, key) = decrypt(encrypt(plainText, key), key) == plainText

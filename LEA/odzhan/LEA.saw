@@ -1,0 +1,19 @@
+import "../LEA.cry";
+
+let {{
+  leaExtract x = encrypt (plainText, key)
+    where [plainText, key] = split x
+}};
+
+print "[+] Loading LEA Implementation Model";
+lea_imp <- time (load_aig "LEA_imp.aig");
+
+print "[+] Writing reference AIG";
+time (write_aig "../LEA_ref.aig" {{ leaExtract }});
+
+print "[+] Loading LEA Reference Implementation Model";
+lea_ref <- time (bitblast {{ leaExtract }});
+
+print "[*] Checking Equivalence (may take about an hour): ";
+res <- time (cec lea_imp lea_ref);
+print res;

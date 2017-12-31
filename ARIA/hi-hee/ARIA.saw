@@ -1,0 +1,19 @@
+import "../ARIA.cry";
+
+let {{
+  ariaExtract x = encrypt (plainText, key)
+    where [plainText, key] = split x
+}};
+
+print "[+] Loading ARIA Implementation Model";
+aria_imp <- time (load_aig "ARIA_imp.aig");
+
+print "[+] Writing reference AIG";
+time (write_aig "../ARIA_ref.aig" {{ ariaExtract }});
+
+print "[+] Loading ARIA Reference Implementation Model";
+aria_ref <- time (bitblast {{ ariaExtract }});
+
+print "[*] Checking Equivalence (may take about an hour): ";
+res <- time (cec aria_imp aria_ref);
+print res;
